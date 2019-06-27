@@ -342,7 +342,7 @@ class SequenceToSequence(Model):
       attention = None
       alignment_type = None
       if params.get("with_scores"):
-        score = prediction["log_probs"][i]
+        score = prediction["log_probs"][i] / prediction["length"][i]
       if params.get("with_alignments"):
         attention = prediction["alignment"][i][:target_length]
         alignment_type = params["with_alignments"]
