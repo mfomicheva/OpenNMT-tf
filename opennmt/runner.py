@@ -512,18 +512,15 @@ class Runner(object):
 
       cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
           logits=outputs["logits"], labels=labels["ids_out"])
-      probabilities = tf.nn.softmax(outputs["logits"])
       weights = tf.sequence_mask(labels["length"], dtype=cross_entropy.dtype)
       masked_cross_entropy = cross_entropy * weights
       scores = (tf.reduce_sum(masked_cross_entropy, axis=1) /
                 tf.cast(labels["length"], cross_entropy.dtype))
       results = {
           "cross_entropy": cross_entropy,
-          "ids_out": labels["ids_out"],
           "score": scores,
           "tokens": labels["tokens"],
           "length": labels["length"] - 1,  # -1 for the special token.
-          "probabilities": probabilities,
       }
       if "attention" in outputs:
         results["attention"] = outputs["attention"]
@@ -545,11 +542,10 @@ class Runner(object):
           for batch in misc.extract_batches(sess.run(results)):
             tokens = batch["tokens"][:batch["length"]]
             sentence = output_tokenizer.detokenize(tokens)
-            token_level_scores = []
+            token_level_scores = None
             attention = None
             if self._config["score"].get("with_token_level"):
-              for i, probas in enumerate(batch["probabilities"][:batch["length"]]):
-                token_level_scores.append(probas[batch["ids_out"][i]])
+              token_level_scores = np.exp(-1. * batch["cross_entropy"][:batch["length"]])
             if "attention" in batch:
               attention = batch["attention"][:batch["length"]]
             alignment_type = self._config["score"].get("with_alignments")
