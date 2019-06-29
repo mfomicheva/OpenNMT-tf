@@ -519,6 +519,7 @@ class Runner(object):
                 tf.cast(labels["length"], cross_entropy.dtype))
       results = {
           "cross_entropy": cross_entropy,
+          "ids_out": labels["ids_out"],
           "score": scores,
           "tokens": labels["tokens"],
           "length": labels["length"] - 1,  # -1 for the special token.
@@ -544,10 +545,11 @@ class Runner(object):
           for batch in misc.extract_batches(sess.run(results)):
             tokens = batch["tokens"][:batch["length"]]
             sentence = output_tokenizer.detokenize(tokens)
-            token_level_scores = None
+            token_level_scores = []
             attention = None
             if self._config["score"].get("with_token_level"):
-              token_level_scores = batch["probabilities"][:batch["length"]]
+              for i, probas in enumerate(batch["probabilities"][:batch["length"]]):
+                token_level_scores.append(probas[batch["ids_out"][i]])
             if "attention" in batch:
               attention = batch["attention"][:batch["length"]]
             alignment_type = self._config["score"].get("with_alignments")
