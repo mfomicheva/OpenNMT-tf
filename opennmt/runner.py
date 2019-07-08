@@ -517,6 +517,8 @@ class Runner(object):
       scores = (tf.reduce_sum(masked_cross_entropy, axis=1) /
                 tf.cast(labels["length"], cross_entropy.dtype))
       results = {
+          "logits": outputs["logits"],
+          "labels": labels["ids_out"],
           "cross_entropy": cross_entropy,
           "score": scores,
           "tokens": labels["tokens"],
