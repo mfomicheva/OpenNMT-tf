@@ -471,18 +471,36 @@ class Runner(object):
   def score(self, features_file, predictions_file, checkpoint_path=None, output_file=None):
     """Scores existing predictions.
 
-    Args:
-      features_file: The input file.
-      predictions_file: The predictions file to score.
-      checkpoint_path: Path of a specific checkpoint to use. If ``None``,
-        the latest is used.
-      output_file: The file where the scores are saved. Otherwise, they will be
-        printed on the standard output.
+      Args:
+        features_file: The input file.
+        predictions_file: The predictions file to score.
+        checkpoint_path: Path of a specific checkpoint to use. If ``None``,
+          the latest is used.
+        output_file: The file where the scores are saved. Otherwise, they will be
+          printed on the standard output.
 
-    Raises:
-      ValueError: if no checkpoint are found or if the model is not a sequence to
-        sequence model.
+      Raises:
+        ValueError: if no checkpoint are found or if the model is not a sequence to
+          sequence model.
     """
+    if output_file:
+      stream = io.open(output_file, encoding="utf-8", mode="w")
+    else:
+      stream = sys.stdout
+    for batch_output in self.score_as_generator(
+            features_file, predictions_file, checkpoint_path=checkpoint_path):
+      sentence = format_translation_output(
+        batch_output["sentence"],
+        score=batch_output["score"],
+        token_level_scores=batch_output["token_level_scores"],
+        attention=batch_output["attention"],
+        alignment_type=batch_output["alignment_type"])
+      misc.print_bytes(tf.compat.as_bytes(sentence), stream=stream)
+    if output_file:
+      stream.close()
+
+  def score_as_generator(self, features_file, predictions_file, checkpoint_path=None):
+
     if not isinstance(self._model, (models.LanguageModel, models.SequenceToSequence)):
       raise ValueError("scoring only works for sequence to sequence or language models")
 
@@ -527,11 +545,6 @@ class Runner(object):
       if "attention" in outputs:
         results["attention"] = outputs["attention"]
 
-      if output_file:
-        stream = io.open(output_file, encoding="utf-8", mode="w")
-      else:
-        stream = sys.stdout
-
       output_tokenizer = (
           self._model.labels_inputter.tokenizer if not self._model.unsupervised
           else self._model.features_inputter.tokenizer)
@@ -547,20 +560,21 @@ class Runner(object):
             token_level_scores = None
             attention = None
             if self._config["score"].get("with_token_level"):
-              token_level_scores = np.exp(-1. * batch["cross_entropy"][:batch["length"]])
+              token_level_scores = batch["cross_entropy"][:batch["length"]]  # np.exp(-1. * batch["cross_entropy"][:batch["length"]])
             if "attention" in batch:
               attention = batch["attention"][:batch["length"]]
             alignment_type = self._config["score"].get("with_alignments")
-            sentence = format_translation_output(
-                sentence,
-                score=batch["score"],
-                token_level_scores=token_level_scores,
-                attention=attention,
-                alignment_type=alignment_type)
-            misc.print_bytes(tf.compat.as_bytes(sentence), stream=stream)
+            batch_output = {
+              "sentence": sentence,
+              "score": batch["score"],
+              "logits": batch["logits"],
+              "labels": batch["labels"],
+              "token_level_scores": token_level_scores,
+              "attention": attention,
+              "alignment_type": alignment_type,
+            }
+            yield batch_output
 
-      if output_file:
-        stream.close()
 
 def _make_exporters(exporters_type, serving_input_fn, assets_extra=None):
   if exporters_type is None:
