@@ -499,6 +499,41 @@ class Runner(object):
     if output_file:
       stream.close()
 
+  def generate_translation_outputs(self, features_file, predictions_file):
+    model = copy.deepcopy(self._model)
+    dataset = model.examples_inputter.make_evaluation_dataset(
+      features_file,
+      predictions_file,
+      self._config["score"]["batch_size"],
+      num_threads=self._config["score"].get("num_threads"),
+      prefetch_buffer_size=self._config["score"].get("prefetch_buffer_size"))
+    iterator = dataset.make_initializable_iterator()
+    features, labels = iterator.get_next()
+    labels["alignment"] = None  # Add alignment key to force the model to return attention.
+    outputs, _ = model(
+      features,
+      labels,
+      self._config["params"],
+      tf.estimator.ModeKeys.EVAL)
+    return outputs, labels, iterator
+
+  def compute_model_scores(self, logits, labels_ids, labels_length, labels_tokens):
+      cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits=logits, labels=labels_ids)
+      weights = tf.sequence_mask(labels_length, dtype=cross_entropy.dtype)
+      masked_cross_entropy = cross_entropy * weights
+      scores = (tf.reduce_sum(masked_cross_entropy, axis=1) /
+        tf.cast(labels_length, cross_entropy.dtype))
+      results = {
+        "logits": logits,
+        "labels": labels_ids,
+        "cross_entropy": cross_entropy,
+        "score": scores,
+        "tokens": labels_tokens,
+        "length": labels_length - 1,  # -1 for the special token.
+      }
+      return results
+
   def score_as_generator(self, features_file, predictions_file, checkpoint_path=None):
 
     if not isinstance(self._model, (models.LanguageModel, models.SequenceToSequence)):
@@ -511,40 +546,10 @@ class Runner(object):
     if checkpoint_path is None:
       raise ValueError("could not find a trained model in %s" % self._config["model_dir"])
 
-    model = copy.deepcopy(self._model)
     with tf.Graph().as_default():
-      dataset = model.examples_inputter.make_evaluation_dataset(
-          features_file,
-          predictions_file,
-          self._config["score"]["batch_size"],
-          num_threads=self._config["score"].get("num_threads"),
-          prefetch_buffer_size=self._config["score"].get("prefetch_buffer_size"))
-      iterator = dataset.make_initializable_iterator()
-      features, labels = iterator.get_next()
-      labels["alignment"] = None  # Add alignment key to force the model to return attention.
-      outputs, _ = model(
-          features,
-          labels,
-          self._config["params"],
-          tf.estimator.ModeKeys.EVAL)
-
-      cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          logits=outputs["logits"], labels=labels["ids_out"])
-      weights = tf.sequence_mask(labels["length"], dtype=cross_entropy.dtype)
-      masked_cross_entropy = cross_entropy * weights
-      scores = (tf.reduce_sum(masked_cross_entropy, axis=1) /
-                tf.cast(labels["length"], cross_entropy.dtype))
-      results = {
-          "logits": outputs["logits"],
-          "labels": labels["ids_out"],
-          "cross_entropy": cross_entropy,
-          "score": scores,
-          "tokens": labels["tokens"],
-          "length": labels["length"] - 1,  # -1 for the special token.
-      }
-      if "attention" in outputs:
-        results["attention"] = outputs["attention"]
-
+      outputs, labels, iterator = self.generate_translation_outputs(features_file, predictions_file)
+      results = self.compute_model_scores(
+        outputs["logits"], labels["ids_out"], labels["length"], labels["tokens"])
       output_tokenizer = (
           self._model.labels_inputter.tokenizer if not self._model.unsupervised
           else self._model.features_inputter.tokenizer)
