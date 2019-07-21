@@ -199,7 +199,7 @@ def dot_product_attention(queries,
   drop_attn = tf.layers.dropout(
       attn,
       rate=dropout,
-      training=mode == tf.estimator.ModeKeys.TRAIN)
+      training=False)
 
   # Compute attention context.
   context = tf.matmul(drop_attn, values)
@@ -314,7 +314,7 @@ def feed_forward(x, inner_dim, mode, dropout=0.0):
   inner = tf.layers.dropout(
       inner,
       rate=dropout,
-      training=mode == tf.estimator.ModeKeys.TRAIN)
+      training=False)
   outer = tf.layers.conv1d(inner, input_dim, 1)
 
   return outer
@@ -341,7 +341,7 @@ def drop_and_add(inputs,
   outputs = tf.layers.dropout(
       outputs,
       rate=dropout,
-      training=mode == tf.estimator.ModeKeys.TRAIN)
+      training=False)
 
   input_dim = inputs.get_shape().as_list()[-1]
   output_dim = outputs.get_shape().as_list()[-1]
@@ -386,7 +386,7 @@ class FeedForwardNetwork(tf.keras.layers.Layer):
   def call(self, inputs, training=None):  # pylint: disable=arguments-differ
     """Runs the layer."""
     inner = self.inner(inputs)
-    inner = common.dropout(inner, self.dropout, training=training)
+    inner = common.dropout(inner, self.dropout, training=False)
     return self.outer(inner)
 
 
@@ -485,7 +485,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
       mask = tf.expand_dims(tf.cast(mask, tf.float32), 1)  # Broadcast on heads dimension.
       dot = tf.cast(tf.cast(dot, tf.float32) * mask + ((1.0 - mask) * tf.float32.min), dot.dtype)
     attn = tf.cast(tf.nn.softmax(tf.cast(dot, tf.float32)), dot.dtype)
-    drop_attn = common.dropout(attn, self.dropout, training=training)
+    drop_attn = common.dropout(attn, self.dropout, training=False)
     heads = tf.matmul(drop_attn, values)
 
     # Concatenate all heads output.
